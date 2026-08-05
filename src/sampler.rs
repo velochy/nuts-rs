@@ -70,10 +70,18 @@ pub trait Settings:
     fn sampler_name(&self) -> &'static str;
     fn adaptation_name(&self) -> &'static str;
 
+    /// Stats these settings switch off. They are never written, so declaring them would only
+    /// create arrays that stay at their fill value and that every storage backend then carries.
+    fn disabled_stats(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+
     fn stat_names<M: Math>(&self, math: &M) -> Vec<String> {
         let dims = StatsDims::from(math);
+        let disabled = self.disabled_stats();
         <<Self::Chain<M> as SamplerStats<M>>::Stats as Storable<_>>::names(&dims)
             .into_iter()
+            .filter(|name| !disabled.contains(name))
             .map(String::from)
             .collect()
     }
@@ -192,6 +200,26 @@ mod private {
     impl Sealed for LowRankMclmcSettings {}
 
     impl Sealed for FlowMclmcSettings {}
+}
+
+/// The point stats each `store_*` flag suppresses, mirroring `TransformedPoint::extract_stats`.
+fn disabled_point_stats(
+    store_gradient: bool,
+    store_unconstrained: bool,
+    store_transformed: bool,
+) -> Vec<&'static str> {
+    let mut names = Vec::new();
+    if !store_gradient {
+        names.push("gradient");
+    }
+    if !store_unconstrained {
+        names.push("unconstrained_draw");
+    }
+    if !store_transformed {
+        names.push("transformed_position");
+        names.push("transformed_gradient");
+    }
+    names
 }
 
 /// Settings for the NUTS sampler
@@ -472,6 +500,14 @@ impl Settings for DiagMclmcSettings {
         self.seed
     }
 
+    fn disabled_stats(&self) -> Vec<&'static str> {
+        disabled_point_stats(
+            self.store_gradient,
+            self.store_unconstrained,
+            self.store_transformed,
+        )
+    }
+
     fn stats_options<M: Math>(&self) -> <Self::Chain<M> as SamplerStats<M>>::StatsOptions {
         StatOptions {
             adapt: GlobalStrategyStatsOptions {
@@ -595,6 +631,14 @@ impl Settings for LowRankMclmcSettings {
         self.seed
     }
 
+    fn disabled_stats(&self) -> Vec<&'static str> {
+        disabled_point_stats(
+            self.store_gradient,
+            self.store_unconstrained,
+            self.store_transformed,
+        )
+    }
+
     fn stats_options<M: Math>(&self) -> <Self::Chain<M> as SamplerStats<M>>::StatsOptions {
         StatOptions {
             adapt: GlobalStrategyStatsOptions {
@@ -707,6 +751,14 @@ impl Settings for LowRankNutsSettings {
         self.seed
     }
 
+    fn disabled_stats(&self) -> Vec<&'static str> {
+        disabled_point_stats(
+            self.store_gradient,
+            self.store_unconstrained,
+            self.store_transformed,
+        )
+    }
+
     fn stats_options<M: Math>(&self) -> <Self::Chain<M> as SamplerStats<M>>::StatsOptions {
         StatOptions {
             adapt: GlobalStrategyStatsOptions {
@@ -785,6 +837,14 @@ impl Settings for DiagNutsSettings {
 
     fn seed(&self) -> u64 {
         self.seed
+    }
+
+    fn disabled_stats(&self) -> Vec<&'static str> {
+        disabled_point_stats(
+            self.store_gradient,
+            self.store_unconstrained,
+            self.store_transformed,
+        )
     }
 
     fn stats_options<M: Math>(&self) -> <Self::Chain<M> as SamplerStats<M>>::StatsOptions {
@@ -866,6 +926,14 @@ impl Settings for FlowNutsSettings {
 
     fn seed(&self) -> u64 {
         self.seed
+    }
+
+    fn disabled_stats(&self) -> Vec<&'static str> {
+        disabled_point_stats(
+            self.store_gradient,
+            self.store_unconstrained,
+            self.store_transformed,
+        )
     }
 
     fn stats_options<M: Math>(&self) -> <Self::Chain<M> as SamplerStats<M>>::StatsOptions {
@@ -960,6 +1028,14 @@ impl Settings for FlowMclmcSettings {
 
     fn seed(&self) -> u64 {
         self.seed
+    }
+
+    fn disabled_stats(&self) -> Vec<&'static str> {
+        disabled_point_stats(
+            self.store_gradient,
+            self.store_unconstrained,
+            self.store_transformed,
+        )
     }
 
     fn stats_options<M: Math>(&self) -> <Self::Chain<M> as SamplerStats<M>>::StatsOptions {
