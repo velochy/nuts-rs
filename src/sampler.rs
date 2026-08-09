@@ -12,7 +12,7 @@ use anyhow::{Context, bail};
 #[cfg(feature = "parallel")]
 use itertools::Itertools;
 #[cfg(feature = "parallel")]
-use std::ops::Deref;
+use std::{collections::HashSet, ops::Deref};
 
 #[cfg(feature = "parallel")]
 use rayon::{ScopeFifo, ThreadPoolBuilder};
@@ -76,6 +76,10 @@ pub trait Settings:
         Vec::new()
     }
 
+    /// The stats that are stored, in the order the sampler emits them.
+    ///
+    /// This is what storage backends allocate from, and anything the chain emits that is
+    /// not named here is dropped before it reaches them.
     fn stat_names<M: Math>(&self, math: &M) -> Vec<String> {
         let dims = StatsDims::from(math);
         let disabled = self.disabled_stats();
@@ -86,6 +90,10 @@ pub trait Settings:
             .collect()
     }
 
+    /// The posterior variables that are stored, in the order the model expands them.
+    ///
+    /// A `Math` whose expanded vector declares fewer names than it produces values for -
+    /// a model asked for a subset of its variables - has the rest dropped here.
     fn data_names<M: Math>(&self, math: &M) -> Vec<String> {
         <M::ExpandedVector as Storable<_>>::names(math)
             .into_iter()
@@ -200,6 +208,15 @@ mod private {
     impl Sealed for LowRankMclmcSettings {}
 
     impl Sealed for FlowMclmcSettings {}
+}
+
+/// Drop the values whose name was not declared to the storage backend.
+///
+/// Backends allocate one column per declared name, and some of them zip the incoming values
+/// against that list positionally, so an undeclared value would shift every column after it.
+#[cfg(feature = "parallel")]
+fn retain_declared(declared: &HashSet<String>, values: &mut Vec<(&str, Option<Value>)>) {
+    values.retain(|(name, _)| declared.contains(*name));
 }
 
 /// The point stats each `store_*` flag suppresses, mirroring `TransformedPoint::extract_stats`.
@@ -1224,6 +1241,22 @@ impl<T: TraceStorage> ChainProcess<T> {
 
                 let draws = settings.hint_num_tune() + settings.hint_num_draws();
 
+                // The trace was built from these names, so anything else the chain or the
+                // model produces has nowhere to go and is dropped below.
+                let (declared_stats, declared_data) = {
+                    let math = sampler.math();
+                    (
+                        settings
+                            .stat_names(math.deref())
+                            .into_iter()
+                            .collect::<HashSet<_>>(),
+                        settings
+                            .data_names(math.deref())
+                            .into_iter()
+                            .collect::<HashSet<_>>(),
+                    )
+                };
+
                 let mut msg = stop_marker_rx.try_recv();
                 let mut draw = 0;
                 loop {
@@ -1258,12 +1291,11 @@ impl<T: TraceStorage> ChainProcess<T> {
 
                     let math = sampler.math();
                     let dims = StatsDims::from(math.deref());
-                    trace_val.record_sample(
-                        settings,
-                        stats.get_all(&dims),
-                        draw_data.get_all(math.deref()),
-                        &info,
-                    )?;
+                    let mut stat_values = stats.get_all(&dims);
+                    let mut draw_values = draw_data.get_all(math.deref());
+                    retain_declared(&declared_stats, &mut stat_values);
+                    retain_declared(&declared_data, &mut draw_values);
+                    trace_val.record_sample(settings, stat_values, draw_values, &info)?;
 
                     draw += 1;
                     if draw == draws {
