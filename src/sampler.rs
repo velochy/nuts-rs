@@ -76,10 +76,8 @@ pub trait Settings:
         Vec::new()
     }
 
-    /// The stats that are stored, in the order the sampler emits them.
-    ///
-    /// This is what storage backends allocate from, and anything the chain emits that is
-    /// not named here is dropped before it reaches them.
+    /// The stats that are stored, in the order the sampler emits them. Storage is allocated
+    /// from this list, and `ChainProcess` drops anything emitted that is not in it.
     fn stat_names<M: Math>(&self, math: &M) -> Vec<String> {
         let dims = StatsDims::from(math);
         let disabled = self.disabled_stats();
@@ -90,10 +88,9 @@ pub trait Settings:
             .collect()
     }
 
-    /// The posterior variables that are stored, in the order the model expands them.
-    ///
-    /// A `Math` whose expanded vector declares fewer names than it produces values for -
-    /// a model asked for a subset of its variables - has the rest dropped here.
+    /// The posterior variables that are stored, in the order the model expands them. A `Math`
+    /// may declare fewer than it produces - a model restricted to a subset of its variables -
+    /// and `ChainProcess` drops the rest.
     fn data_names<M: Math>(&self, math: &M) -> Vec<String> {
         <M::ExpandedVector as Storable<_>>::names(math)
             .into_iter()
@@ -210,10 +207,8 @@ mod private {
     impl Sealed for FlowMclmcSettings {}
 }
 
-/// Drop the values whose name was not declared to the storage backend.
-///
-/// Backends allocate one column per declared name, and some of them zip the incoming values
-/// against that list positionally, so an undeclared value would shift every column after it.
+/// Drop the values whose name was not declared to the storage backend. Some backends zip the
+/// incoming values against their declared columns, so an undeclared one would shift the rest.
 #[cfg(feature = "parallel")]
 fn retain_declared(declared: &HashSet<String>, values: &mut Vec<(&str, Option<Value>)>) {
     values.retain(|(name, _)| declared.contains(*name));

@@ -123,9 +123,10 @@ impl<P: HasDims> Storable<P> for PartialExpanded {
     }
 
     fn get_all<'a>(&'a mut self, _parent: &'a P) -> Vec<(&'a str, Option<Value>)> {
+        // undeclared first: a backend zipping positionally then shifts unless it is dropped
         vec![
-            ("kept", Some(Value::F64(self.0.clone()))),
             ("undeclared", Some(Value::F64(self.0.clone()))),
+            ("kept", Some(Value::F64(self.0.clone()))),
         ]
     }
 }
