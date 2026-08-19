@@ -736,9 +736,11 @@ mod tests {
         )
         .unwrap();
 
-        let SamplerWaitResult::Trace(_) = sampler.wait_timeout(Duration::from_secs(5)) else {
-            panic!("failed to sample")
-        };
+        let result = sampler.wait_timeout(Duration::from_secs(5));
+        assert!(
+            matches!(result, SamplerWaitResult::Trace(_)),
+            "failed to sample"
+        );
 
         assert!(Array::open(store.clone(), "/posterior/kept").is_ok());
         assert!(Array::open(store.clone(), "/posterior/undeclared").is_err());

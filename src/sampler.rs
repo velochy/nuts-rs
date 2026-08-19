@@ -72,9 +72,7 @@ pub trait Settings:
 
     /// Stats these settings switch off. They are never written, so declaring them would only
     /// create arrays that stay at their fill value and that every storage backend then carries.
-    fn disabled_stats(&self) -> Vec<&'static str> {
-        Vec::new()
-    }
+    fn disabled_stats(&self) -> Vec<&'static str>;
 
     /// The stats that are stored, in the order the sampler emits them. Storage is allocated
     /// from this list, and `ChainProcess` drops anything emitted that is not in it.
@@ -1697,8 +1695,8 @@ mod tests {
     use crate::math::test_logps::NormalLogp;
     use crate::{
         Chain, math::CpuMath, sample_sequentially, sampler::DiagMclmcSettings,
-        sampler::DiagNutsSettings, sampler::LowRankMclmcSettings, sampler::LowRankNutsSettings,
-        sampler::Settings,
+        sampler::DiagNutsSettings, sampler::FlowMclmcSettings, sampler::FlowNutsSettings,
+        sampler::LowRankMclmcSettings, sampler::LowRankNutsSettings, sampler::Settings,
     };
 
     #[cfg(feature = "zarr")]
@@ -1735,6 +1733,38 @@ mod tests {
         chain.set_position(&vec![0.2; 4])?;
         let (_draw, _info) = chain.draw()?;
         Ok(())
+    }
+
+    /// Every settings type has to map the `store_*` flags onto the same suppressed stats,
+    /// including the flow ones that `all_settings_smoke` cannot build a chain for.
+    #[test]
+    fn store_flags_disable_point_stats() {
+        macro_rules! assert_disabled {
+            ($($ty:ty),+ $(,)?) => {$({
+                let mut settings = <$ty>::default();
+                assert_eq!(
+                    settings.disabled_stats(),
+                    [
+                        "gradient",
+                        "unconstrained_draw",
+                        "transformed_position",
+                        "transformed_gradient",
+                    ]
+                );
+                settings.store_gradient = true;
+                settings.store_unconstrained = true;
+                settings.store_transformed = true;
+                assert!(settings.disabled_stats().is_empty());
+            })+};
+        }
+        assert_disabled!(
+            DiagNutsSettings,
+            LowRankNutsSettings,
+            FlowNutsSettings,
+            DiagMclmcSettings,
+            LowRankMclmcSettings,
+            FlowMclmcSettings,
+        );
     }
 
     #[test]
